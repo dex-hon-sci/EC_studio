@@ -53,6 +53,7 @@ disable_created_metrics()
 app = Flask(__name__)
 
 registry = CollectorRegistry()
+metric_sym_list = ['QOc1', 'QOc2', 'QPc1', 'QPc2']
 symbol_list = ['QON25', 'QOQ25', 'QPM25', 'QPN25']
 C = ConnectCQG(host_name, user_name, password)
 M = Monitor(C)
@@ -108,31 +109,26 @@ def setup_metrics_obj(symbol_name: str):
                                 'PNL': PNLGauge, },
                         'enum':{'signal':SignalEnum}}
     
-# =============================================================================
-#     metrics_obj_dict =  {'price': PriceGauage, 
-#                          'volume': VolumeGauge,
-#                          'lot_size': LotSizeGauge,
-#                          'TE_price': TEPriceGauge,
-#                          'TP_price': TPPriceGauge,
-#                          'SL_price': SLPriceGague,
-#                          'entry_status': EntryStatusGauge, 
-#                          'exit_status': ExitStatusGauge, 
-#                          'sl_status': SLStatusGauge, 
-#                          'PNL': PNLGauge, }
-# =============================================================================
-                         #'signal': SignalEnum,}
-                         #'table_info': TableInfo}
-    
     return metrics_obj_dict
 
+DEFAULT_KWARGS = {'initial_dt':404,
+                  'initial_price':404,
+                  'initial_volume':404}
 
 def collect_metrics(monitor: Monitor, 
-                    symbol_name: str, msg_id: int):
+                    symbol_name: str, msg_id: int,
+                    **kwargs):
+    default_kwargs = DEFAULT_KWARGS
+    kwargs = dict(default_kwargs,**kwargs)
+
     # collect inforamtion 
     #contract_id = monitor._connection.resolve_symbol(symbol_name, 1).contract_id
     contract_id = CONTRACT_IDS[symbol_name]
     # Get the live-data
-    timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id)
+    timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id,
+                                                      initial_dt=kwargs['initial_dt'],
+                                                      initial_price=kwargs['initial_price'],
+                                                      initial_volume=kwargs['initial_volume'])
     
     # Get information from Strategy
     # Payload information Read this from a class 
@@ -151,17 +147,17 @@ def collect_metrics(monitor: Monitor,
 
     # Load them for output
     metric_val_dict = {'price': price*PRICE_SCALES[symbol_name], 
-                        'timestamp': timestamp,
-                        'volume': float(volume),
-                        'lot_size': lot_size,
-                        'TE_price': TE_price,
-                        'TP_price': TP_price,
-                        'SL_price': SL_price,
-                        'entry_status': entry_status, 
-                        'exit_status': exit_status, 
-                        'sl_status': sl_status, 
-                        'PNL': PNL, 
-                        'signal': signal}
+                       'timestamp': timestamp,
+                       'volume': float(volume),
+                       'lot_size': lot_size,
+                       'TE_price': TE_price,
+                       'TP_price': TP_price,
+                       'SL_price': SL_price,
+                       'entry_status': entry_status, 
+                       'exit_status': exit_status, 
+                       'sl_status': sl_status, 
+                       'PNL': PNL, 
+                       'signal': signal}
     
     return metric_val_dict
 
@@ -192,16 +188,27 @@ def main_loop(sym_list:list[str], update_rate: float |int=1):
     
     msg_id = 200
     
+    # Initialise the master_metric_val_dict
+    master_metrics_val_dict = {f'{sym}': dict() for sym in sym_list}
     # Main Loop of the app
     while True:
         msg_id +=1
         for sym in sym_list:
-           metric_val_dict = collect_metrics(M, sym, msg_id)
+           # Collect metrics
+           metric_val_dict = collect_metrics(M, sym, msg_id, 
+                                             initial_dt= master_metrics_val_dict[sym]['timestamp'],
+                                             initial_price = master_metrics_val_dict[sym]['price'],
+                                             initial_volume= master_metrics_val_dict[sym]['volume'])
+           
+           # Set the metric value in Prometheus
            #set_metrics_values(sym, master_metrics_obj_dict[sym], metric_val_dict)
            
+           # Record the metrics value in a master dict as the default value 
+           # of the next loop
+           master_metrics_val_dict[sym] = metric_val_dict
+
         time.sleep(update_rate)
     return
-
 
 
 @app.route('/metrics')
