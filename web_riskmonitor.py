@@ -53,25 +53,33 @@ disable_created_metrics()
 app = Flask(__name__)
 
 registry = CollectorRegistry()
-metric_sym_list = ['QOc1', 'QOc2', 'QPc1', 'QPc2']
-symbol_list = ['QON25', 'QOQ25', 'QPM25', 'QPN25']
+#symbol_list = ['QOc1', 'QOc2', 'QPc1', 'QPc2']
+#code_list = ['QON25', 'QOQ25', 'QPM25', 'QPN25']
+
+symbol_list = ['QOc1', 'QOc2']
+code_list = ['QON25', 'QOQ25']
+
+
+SYM2CODE = {ele1:ele2 for ele1, ele2 in zip(symbol_list, code_list)}
+CODE2SYM = {ele2:ele1 for ele1, ele2 in zip(symbol_list, code_list)}
+
 C = ConnectCQG(host_name, user_name, password)
 M = Monitor(C)
 CONTRACT_IDS = {f'{sym}': M._connection.resolve_symbol(sym, 1).contract_id 
-                for sym in symbol_list}
+                for sym in code_list}
 CONTRACT_METADATA ={f'{sym}':M._connection.resolve_symbol(sym, 1)
-                    for sym in symbol_list}     
+                    for sym in code_list}     
 
-PRICE_SCALES = {'QON25': 1e-2, 
-                'QOQ25': 1e-2, 
-                'QPM25': 1e-2, 
-                'QPN25': 1e-2}
+PRICE_SCALES = {'QOc1': 1e-2, 
+                'QOc2': 1e-2, 
+                'QPc1': 1e-2, 
+                'QPc2': 1e-2}
 
 def strategypayload():
     # To be finished with SQL
     
     # Save display data
-    strategy_data = {'lot': 1,
+    strategy_data = {'lot_size': 1,
                     "TE_price": 50010,
                     "TP_price": 70300,
                     "SL_price": 19020,
@@ -134,7 +142,7 @@ DEFAULT_KWARGS = {'default_timestamp': np.nan,
 
 def collect_metrics(monitor: Monitor, 
                     symbol_name_list: list[str], 
-                    msg_id: int, **kwargs):
+                    **kwargs):
     # Collect metrics based on a list of symbol
     # It loop through this list to get the live market data
     default_kwargs = DEFAULT_KWARGS
@@ -143,19 +151,19 @@ def collect_metrics(monitor: Monitor,
     master_metrics_val_dict = {}
     for symbol_name in symbol_name_list:
         # collect inforamtion 
-        contract_id = CONTRACT_IDS[symbol_name]
+        contract_id = CONTRACT_IDS[SYM2CODE[symbol_name]]
         print(f"======={symbol_name}, {contract_id}=======")
         # Get the live-data
-        #timestamp, price, volume = M.request_real_time(contract_id,
-        #                                               default_timestamp=kwargs['initial_dt'],
-        #                                               default_price=kwargs['initial_price'],
-        #                                               default_volume=kwargs['initial_volume'])
+        timestamp, price, volume = M.request_real_time(contract_id,
+                                                       default_timestamp=kwargs['default_timestamp'],
+                                                       default_price=kwargs['default_price'],
+                                                       default_volume=kwargs['default_volume'])
 
 
-        timestamp, price, volume = random.randint(0,100000), random.randint(0,100000), random.randint(0,10)
+        #timestamp, price, volume = random.randint(0,100000), random.randint(0,100000), random.randint(0,10)
 
         #timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id)
-        print(symbol_name, contract_id, timestamp, price, volume)
+        print(SYM2CODE[symbol_name], contract_id, timestamp, price, volume)
 
         #logger.info(str(server_msg))
         #print('msg_id',msg_id)
@@ -172,7 +180,7 @@ def collect_metrics(monitor: Monitor,
         # Payload information Read this from a class 
         strategy_data = strategypayload()
         
-        lot = strategy_data['lot']
+        lot_size = strategy_data['lot_size']
         TE_price = strategy_data['TE_price']
         TP_price = strategy_data['TP_price']
         SL_price = strategy_data['SL_price']
@@ -184,10 +192,11 @@ def collect_metrics(monitor: Monitor,
         sl_status = strategy_data['sl_status']
         
         # Derived quantity
-        PNL = (price-TE_price)*lot
+        PNL = (price-TE_price)*lot_size
     
         # Load them for output
         metric_val_dict = {'price': price*PRICE_SCALES[symbol_name], 
+                           'lot_size': lot_size,
                             'timestamp': timestamp,
                             'volume': volume_float[0], 
                             'TE_price': TE_price,
@@ -196,10 +205,10 @@ def collect_metrics(monitor: Monitor,
                             'entry_status': entry_status, 
                             'exit_status': exit_status, 
                             'sl_status': sl_status, 
-                            'PNL_gauge': PNL, 
-                            'signal_enum': signal}
+                            'PNL': PNL, 
+                            'signal': signal}
         
-        master_metrics_val_dict[symbol_name] = metric_val_dict
+        master_metrics_val_dict[SYM2CODE[symbol_name]] = metric_val_dict
 
     #print('final msg_id', msg_id)
     return master_metrics_val_dict
@@ -214,13 +223,13 @@ def set_metrics_values(symbol_name_list: str,
     
     for symbol_name in symbol_name_list:
         # First load the guage objects
-        for key in metrics_obj_dict['gauge']: 
+        for key in metrics_obj_dict[symbol_name]['gauge']: 
             #print(key, metric_val_dict[key], type(metric_val_dict[key]))
-            metrics_obj_dict[symbol_name]['gauge'][key].set(metric_val_dict[symbol_name][key])
+            metrics_obj_dict[symbol_name]['gauge'][key].set(metric_val_dict[SYM2CODE[symbol_name]][key])
             
         # second load the enum objects
-        for key in metrics_obj_dict['enum']: 
-            metrics_obj_dict[symbol_name]['enum'][key].state(metric_val_dict[symbol_name][key])
+        for key in metrics_obj_dict[symbol_name]['enum']: 
+            metrics_obj_dict[symbol_name]['enum'][key].state(metric_val_dict[SYM2CODE[symbol_name]][key])
 
     return
 
@@ -262,7 +271,7 @@ def main_loop(sym_list:list[str], update_rate: float |int=1):
     # Setup and initilisation
     
     # Setup master metric objects
-    master_metrics_obj_dict = {'sym': setup_metrics_obj(sym) for sym in sym_list}
+    master_metrics_obj_dict = {f'{sym}': setup_metrics_obj(sym) for sym in sym_list}
     
     msg_id = 200
     master_metrics_val_dict = {f'{sym}': {'timestamp': 404,
@@ -286,7 +295,9 @@ def main_loop(sym_list:list[str], update_rate: float |int=1):
                                               #initial_price = master_metrics_val_dict[sym]['price'],
                                               #initial_volume= master_metrics_val_dict[sym]['volume'])
             print(master_metrics_val_dict)
-            set_metrics_values(sym_list, master_metrics_obj_dict, master_metrics_val_dict)
+            set_metrics_values(sym_list, 
+                               master_metrics_obj_dict, # with sym_list as keys
+                               master_metrics_val_dict)
             # Record the metrics value in a master dict as the default value 
             # of the next loop
             #break
