@@ -6,6 +6,7 @@ COPY requirements.txt .
 COPY EC_API .
 COPY web_app.py ./
 COPY web_riskmonitor.py ./
+COPY log .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -17,3 +18,5 @@ ENV FLASK_DEBUG=1
 EXPOSE 7000
 
 CMD ["python", "web_riskmonitor.py"]
+#CMD ["python", "web_app.py"]
+
