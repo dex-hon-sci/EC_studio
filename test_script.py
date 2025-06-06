@@ -38,8 +38,8 @@ logging.basicConfig(filename='/home/dexter/Euler_Capital_codes/EC_studio/log/tes
                     format="%(asctime) s%(levelname)s %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S")
 
-#symbol_list = ['QOQ25', 'QOU25', 'QPM25','QPN25']
-symbol_list = ['QOQ25', 'QOU25']
+symbol_list = ['QOQ25', 'QOU25', 'QPM25','QPN25']
+#symbol_list = ['QOQ25', 'QOU25']
 
 #symbol_list = ['QOQ25', 'QPM25']
 #symbol_list = ['QPM25']
@@ -137,7 +137,7 @@ def collect_metrics(monitor: Monitor,
                                                           #kwargs['initial_dt'],
                                                           #kwargs['initial_price'],
                                                           #kwargs['initial_volume'])
-
+        M.reset_tracker(contract_id) # Reset the 
         #timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id)
         print(symbol_name, contract_id, timestamp, price, volume)
 
@@ -212,7 +212,7 @@ def main_loop(sym_list:list[str], update_rate: float |int=1):
             msg_id +=1
             #print(msg_id)
             #print("initial_input", master_metrics_val_dict[sym])
-            master_metrics_val_dict = collect_metrics(M, sym_list, msg_id)
+            master_metrics_val_dict = collect_metrics(M, sym_list)
                                               #initial_dt= master_metrics_val_dict[sym]['timestamp'],
                                               #initial_price = master_metrics_val_dict[sym]['price'],
                                               #initial_volume= master_metrics_val_dict[sym]['volume'])
