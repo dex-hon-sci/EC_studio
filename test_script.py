@@ -15,6 +15,21 @@ from dotenv import load_dotenv
 import numpy as np
 sys.path.insert(0, '/home/dexter/Euler_Capital_codes/EC_studio/EC_API')
 
+from flask import Flask, request
+from prometheus_client import (CollectorRegistry, 
+                               generate_latest, 
+                               CONTENT_TYPE_LATEST,
+                               platform_collector,
+                               process_collector,
+                               gc_collector,
+                               Gauge, Info,
+                               Histogram,
+                               Counter,
+                               Summary,Enum,
+                               disable_created_metrics
+                               )
+
+
 print(sys.path)
 
 from EC_API.monitor import Monitor
@@ -27,19 +42,27 @@ host_name_realtime = os.environ.get("CQG_API_host_name_demo")
 user_name_realtime = os.environ.get("CQG_API_data_demo_usrname")
 password_realtime = os.environ.get("CQG_API_data_demo_pw")
 
+disable_created_metrics()
+app = Flask(__name__)
+registry = CollectorRegistry()
+
+
 resolveSymbolName1 = 'CLEN25'
 resolveSymbolName2 = 'F.US.ZUC'
 resolveSymbolName3 = 'QOQ25'
 resolveSymbolName4 = 'ZUCN25'
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='/home/dexter/Euler_Capital_codes/EC_studio/log/test_script.log', 
+logging.basicConfig(filename='./log/test_script.log', 
                     level=logging.INFO,
                     format="%(asctime) s%(levelname)s %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S")
+symbol_list = ['QOc1', 'QOc2', 'QPc1', 'QPc2']
 
-symbol_list = ['QOQ25', 'QOU25', 'QPM25','QPN25']
+code_list = ['QOQ25', 'QOU25', 'QPM25','QPN25']
 #symbol_list = ['QOQ25', 'QOU25']
+SYM2CODE = {ele1:ele2 for ele1, ele2 in zip(symbol_list, code_list)}
+CODE2SYM = {ele2:ele1 for ele1, ele2 in zip(symbol_list, code_list)}
 
 #symbol_list = ['QOQ25', 'QPM25']
 #symbol_list = ['QPM25']
@@ -92,17 +115,59 @@ def func2(resolveSymbolName, num="", sleep_time =1):
 
 
 CONTRACT_IDS = {f'{sym}': M._connection.resolve_symbol(sym, 1).contract_id 
-                for sym in symbol_list}
+                for sym in code_list}
 CONTRACT_METADATA ={f'{sym}':M._connection.resolve_symbol(sym, 1)
-                    for sym in symbol_list}     
+                    for sym in code_list}     
 #contract_metadata1 = server_msg1.information_reports[0].symbol_resolution_report.contract_metadata
 print('CONTRACT_IDS', CONTRACT_IDS)
 #print("CONTRACT_METADATA", CONTRACT_METADATA)
+def setup_metrics_obj(symbol_name: str):
+    # Setup Metrics classes for Prometheus
+    PriceGauge = Gauge(f"{symbol_name}_price","USD", 
+                        registry=registry)
+    VolumeGauge = Gauge(f"{symbol_name}_volume","", 
+                        registry=registry)
+    LotSizeGauge = Gauge(f"{symbol_name}_quantity","lots",
+                        registry=registry)
+    TEPriceGauge = Gauge(f"{symbol_name}_target_entry","USD", 
+                        registry=registry)
+    TPPriceGauge = Gauge(f"{symbol_name}_target_exit","USD", 
+                        registry=registry)
+    SLPriceGague = Gauge(f"{symbol_name}_stop_loss","USD", 
+                        registry=registry)
+    EntryStatusGauge = Gauge(f"{symbol_name}_entry_status","", 
+                        registry=registry)
+    ExitStatusGauge = Gauge(f"{symbol_name}_exit_status","", 
+                        registry=registry)
+    SLStatusGauge = Gauge(f"{symbol_name}_stop_loss_status","", 
+                        registry=registry)
+    PNLGauge = Gauge(f"{symbol_name}_PNL","dollars", 
+                        registry=registry)
+    SignalEnum = Enum(f"{symbol_name}_signal","", 
+                        registry=registry,
+                        states=['Buy', 'Sell', 'Neutral'])
+    TableInfo = Info(f"{symbol_name}_info","", registry=registry)
+    
+    metrics_obj_dict = {'gauge':{'price': PriceGauge, 
+                                'volume': VolumeGauge,
+                                'lot_size': LotSizeGauge,
+                                'TE_price': TEPriceGauge,
+                                'TP_price': TPPriceGauge,
+                                'SL_price': SLPriceGague,
+                                'entry_status': EntryStatusGauge, 
+                                'exit_status': ExitStatusGauge, 
+                                'sl_status': SLStatusGauge, 
+                                'PNL': PNLGauge, },
+                        'enum':{'signal':SignalEnum}}
+    
+    return metrics_obj_dict
+
+
 def strategypayload():
     # To be finished with SQL
     
     # Save display data
-    strategy_data = {'lot': 1,
+    strategy_data = {'lot_size': 1,
                     "TE_price": 50010,
                     "TP_price": 70300,
                     "SL_price": 19020,
@@ -131,13 +196,16 @@ def collect_metrics(monitor: Monitor,
         print(f"======={symbol_name}, {contract_id}=======")
         # Get the live-data
         timestamp, price, volume = M.request_real_time(contract_id,
-                                                       default_timestamp=kwargs['initial_dt'],
-                                                       default_price=kwargs['initial_price'],
-                                                       default_volume=kwargs['initial_volume'])
+                                                       default_timestamp=
+                                                       kwargs['initial_dt'],
+                                                       default_price=
+                                                       kwargs['initial_price'],
+                                                       default_volume=
+                                                       kwargs['initial_volume'])
                                                           #kwargs['initial_dt'],
                                                           #kwargs['initial_price'],
                                                           #kwargs['initial_volume'])
-        M.reset_tracker(contract_id) # Reset the 
+        M.reset_tracker(contract_id) # Reset the tracker
         #timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id)
         print(symbol_name, contract_id, timestamp, price, volume)
 
@@ -156,7 +224,7 @@ def collect_metrics(monitor: Monitor,
         # Payload information Read this from a class 
         strategy_data = strategypayload()
         
-        lot = strategy_data['lot']
+        lot_size = strategy_data['lot_size']
         TE_price = strategy_data['TE_price']
         TP_price = strategy_data['TP_price']
         SL_price = strategy_data['SL_price']
@@ -168,33 +236,63 @@ def collect_metrics(monitor: Monitor,
         sl_status = strategy_data['sl_status']
         
         # Derived quantity
-        PNL = (price-TE_price)*lot
+        PNL = (price-TE_price)*lot_size
     
         # Load them for output
         metric_val_dict = {'price': price*PRICE_SCALES[symbol_name], 
                             'timestamp': timestamp,
                             'volume': volume_float[0], 
+                            'lot_size': lot_size,
                             'TE_price': TE_price,
                             'TP_price': TP_price,
                             'SL_price': SL_price,
                             'entry_status': entry_status, 
                             'exit_status': exit_status, 
                             'sl_status': sl_status, 
-                            'PNL_gauge': PNL, 
-                            'signal_enum': signal}
+                            'PNL': PNL, 
+                            'signal': signal}
         
         master_metrics_val_dict[symbol_name] = metric_val_dict
 
     #print('final msg_id', msg_id)
     return master_metrics_val_dict
 
-def main_loop(sym_list:list[str], update_rate: float |int=1):
+def set_metrics_values(symbol_name_list: str, 
+                       metrics_obj_dict: dict,
+                       metric_val_dict: dict):
+    # This function matches the metric_obj with the metric value
+    # This method assume the key of metric_val_dict matches the ones in
+    # metrics_obj_dict
+    
+    for symbol_name in symbol_name_list:
+        # First load the guage objects
+        for key in metrics_obj_dict[CODE2SYM[symbol_name]]['gauge']: 
+            #print(key, metric_val_dict[key], type(metric_val_dict[key]))
+            metrics_obj_dict[CODE2SYM[symbol_name]]['gauge'][key].set(
+                metric_val_dict[symbol_name][key])
+            
+        # second load the enum objects
+        for key in metrics_obj_dict[CODE2SYM[symbol_name]]['enum']: 
+            metrics_obj_dict[CODE2SYM[symbol_name]]['enum'][key].state(
+                metric_val_dict[symbol_name][key])
+    return
+
+
+def main_loop(port, sym_list:list[str], update_rate: float |int=1):
     # update_rate is the waiting time each loop in seconds 
     # Setup and initilisation
     
     # Setup master metric objects
-    #master_metrics_obj_dict = {'sym': setup_metrics_obj(sym) for sym in sym_list}
+    #master_metrics_obj_dict = {'sym': setup_metrics_obj(sym) for sym in sym_list}\
+    master_metrics_obj_dict = {f'{CODE2SYM[sym]}': setup_metrics_obj(CODE2SYM[sym])
+                               for sym in sym_list}
     
+    master_metrics_val_dict = {f'{sym}': {'timestamp': np.nan,
+                                          'price': np.nan,
+                                          'volume': np.nan} 
+                               for sym in sym_list}
+
+    print(master_metrics_obj_dict, master_metrics_val_dict)
     msg_id = 200
     master_metrics_val_dict = {f'{sym}': {'timestamp': 404,
                                           'price': 404,
@@ -216,8 +314,11 @@ def main_loop(sym_list:list[str], update_rate: float |int=1):
                                               #initial_dt= master_metrics_val_dict[sym]['timestamp'],
                                               #initial_price = master_metrics_val_dict[sym]['price'],
                                               #initial_volume= master_metrics_val_dict[sym]['volume'])
-            print(master_metrics_val_dict)
-            #set_metrics_values(sym, master_metrics_obj_dict[sym], metric_val_dict)
+            #print(master_metrics_val_dict)
+            set_metrics_values(sym_list, 
+                               master_metrics_obj_dict, # with sym_list as keys
+                               master_metrics_val_dict)
+
             # Record the metrics value in a master dict as the default value 
             # of the next loop
             #break
@@ -260,12 +361,34 @@ def run_singlethread_multiassets():
     #metrics_thread1.start()
 
     return 
+@app.route('/metrics')
+def metrics():
+    """ Exposes application metrics in a Prometheus-compatible format. """
+
+    return generate_latest(registry), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+
+@app.route('/')
+def hello():
+    #delay = random.uniform(1, 5)  # Random delay between 1 and 5 seconds
+    #time.sleep(delay)
+
+    return 'Hello world!'
 
 if __name__ == '__main__':
+    port = os.environ.get("PORT") #int(os.getenv('PORT', '8000'))
+    print(f'Starting HTTP server on port {port}')
     
+    metrics_thread = threading.Thread(target=main_loop, 
+                                      args = (port, code_list,), 
+                                      daemon=True)
+    metrics_thread.start()
+
     try:
-        #func(resolveSymbolName1)
-        run_singlethread_multiassets()
+        app.run(host='0.0.0.0', port=port, debug=True)
+
+    #try:
+    #    #func(resolveSymbolName1)
+    #    run_singlethread_multiassets()
     except Exception as e:
         print(f'Server failed to start: {e}')
         exit(1)

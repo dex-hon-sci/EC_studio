@@ -9,6 +9,7 @@ import time
 import random
 import threading
 import logging
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 import resource
@@ -31,8 +32,8 @@ from prometheus_client import (CollectorRegistry,
                                )
 import os
 import sys
-sys.path.insert(0, '/home/dexter/Euler_Capital_codes/EC_API')
-print(sys.path)
+#sys.path.insert(0, '/home/dexter/Euler_Capital_codes/EC_API')
+#print(sys.path)
 
 from EC_API.monitor import Monitor
 from EC_API.connect import ConnectCQG
@@ -57,8 +58,7 @@ registry = CollectorRegistry()
 #code_list = ['QON25', 'QOQ25', 'QPM25', 'QPN25']
 
 symbol_list = ['QOc1', 'QOc2']
-code_list = ['QON25', 'QOQ25']
-
+code_list = ['QON25', 'QOQ25'] # write a code that get the latest contract
 
 SYM2CODE = {ele1:ele2 for ele1, ele2 in zip(symbol_list, code_list)}
 CODE2SYM = {ele2:ele1 for ele1, ele2 in zip(symbol_list, code_list)}
@@ -79,14 +79,14 @@ def strategypayload():
     # To be finished with SQL
     
     # Save display data
-    strategy_data = {'lot_size': 1,
-                    "TE_price": 50010,
-                    "TP_price": 70300,
-                    "SL_price": 19020,
-                    "signal": "Buy",
-                    "entry_status": True,
+    strategy_data = {'lot_size': 0,
+                    "TE_price": np.nan,
+                    "TP_price": np.nan,
+                    "SL_price": np.nan,
+                    "signal": "Neutral",
+                    "entry_status": False,
                     "exit_status": False,
-                    "sl_status": True}
+                    "sl_status": False}
     return strategy_data
 
 # Setup Metrics classes for Prometheus
@@ -155,11 +155,15 @@ def collect_metrics(monitor: Monitor,
         print(f"======={symbol_name}, {contract_id}=======")
         # Get the live-data
         timestamp, price, volume = M.request_real_time(contract_id,
-                                                       default_timestamp=kwargs['default_timestamp'],
-                                                       default_price=kwargs['default_price'],
-                                                       default_volume=kwargs['default_volume'])
-
-
+                                                       default_timestamp=
+                                                       kwargs['default_timestamp'],
+                                                       default_price=
+                                                       kwargs['default_price'],
+                                                       default_volume=
+                                                       kwargs['default_volume'])
+        # Reset the tracker for this symbol
+        M.reset_tracker(contract_id) 
+        # Test
         #timestamp, price, volume = random.randint(0,100000), random.randint(0,100000), random.randint(0,10)
 
         #timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id)
@@ -174,8 +178,7 @@ def collect_metrics(monitor: Monitor,
             if len(volume_float) == 0:
                 volume_float = [0]
     
-            #print("volume", volume,volume_float, type(volume))
-    
+        ############################################    
         # Get information from Strategy
         # Payload information Read this from a class 
         strategy_data = strategypayload()
@@ -225,84 +228,54 @@ def set_metrics_values(symbol_name_list: str,
         # First load the guage objects
         for key in metrics_obj_dict[symbol_name]['gauge']: 
             #print(key, metric_val_dict[key], type(metric_val_dict[key]))
-            metrics_obj_dict[symbol_name]['gauge'][key].set(metric_val_dict[SYM2CODE[symbol_name]][key])
+            metrics_obj_dict[symbol_name]['gauge'][key].set(
+                metric_val_dict[SYM2CODE[symbol_name]][key])
             
         # second load the enum objects
         for key in metrics_obj_dict[symbol_name]['enum']: 
-            metrics_obj_dict[symbol_name]['enum'][key].state(metric_val_dict[SYM2CODE[symbol_name]][key])
-
+            metrics_obj_dict[symbol_name]['enum'][key].state(
+                metric_val_dict[SYM2CODE[symbol_name]][key])
     return
 
-# =============================================================================
-# def main_loop(sym_list:list[str], update_rate: float |int=1):
-#     # update_rate is the waiting time each loop in seconds 
-#     # Setup and initilisation
-#     
-#     # Setup master metric objects
-#     master_metrics_obj_dict = {f'{sym}': setup_metrics_obj(sym) for sym in sym_list}
-#     
-#     msg_id = 200
-#     
-#     # Initialise the master_metric_val_dict
-#     master_metrics_val_dict = {f'{sym}': dict() for sym in sym_list}
-#     # Main Loop of the app
-#     while True:
-#         msg_id +=1
-#         for sym in sym_list:
-#            # Collect metrics
-#            metric_val_dict = collect_metrics(M, sym,  
-#                                              default_timestamp= master_metrics_val_dict[sym]['timestamp'],
-#                                              default_price = master_metrics_val_dict[sym]['price'],
-#                                              default_volume= master_metrics_val_dict[sym]['volume'])
-#            
-#            # Set the metric value in Prometheus
-#            set_metrics_values(sym, master_metrics_obj_dict[sym], metric_val_dict)
-#            
-#            # Record the metrics value in a master dict as the default value 
-#            # of the next loop
-#            master_metrics_val_dict[sym] = metric_val_dict
-# 
-#         time.sleep(update_rate)
-#     return
-# =============================================================================
-
-def main_loop(sym_list:list[str], update_rate: float |int=1):
+def main_loop(port, sym_list:list[str], update_rate: float |int=1):
     # update_rate is the waiting time each loop in seconds 
     # Setup and initilisation
     
     # Setup master metric objects
-    master_metrics_obj_dict = {f'{sym}': setup_metrics_obj(sym) for sym in sym_list}
+    master_metrics_obj_dict = {f'{sym}': setup_metrics_obj(sym) 
+                               for sym in sym_list}
     
-    msg_id = 200
-    master_metrics_val_dict = {f'{sym}': {'timestamp': 404,
-                                          'price': 404,
-                                          'volume':404} for sym in sym_list}
-# =============================================================================
-#     master_metrics_val_dict = collect_metrics(M, sym_list, msg_id)
-#     print("master_metrics_val_dict", master_metrics_val_dict)
-#     # Main Loop of the app
-# =============================================================================
+    master_metrics_val_dict = {f'{sym}': {'timestamp': np.nan,
+                                          'price': np.nan,
+                                          'volume': np.nan} 
+                               for sym in sym_list}
+
+    # Main Loop of the app
     t_end = time.time() + 5
     while True:
-        # ...
+        # Reboot the loop when UTC time hit 00:00 (should be in a cron script)
+        
+        UTC_now_dt = datetime.now(timezone.utc)
+        # POSIX timestamp in milliseconds
+        UTC_now_timestamp = datetime.now(timezone.utc).timestamp() * 1000 
+        
+        # Start the loop if it is 03:30 UTC
+        # Delete the TSDB data when the time is between 00:00 -> 03:00 UTC
+        # (This can only be done when the port is active)
+        # if UTC_now_dt.time() < xxx :
+        # os.system(f"curl -X POST -g 'http://localhost:{port}/api/v1/admin/tsdb/delete_series?match[]={instance="sbcode.net:9010"}'")
+        
+        # Only collect data and post them on TSDB between 03:00 -> 11:59 UTC
         if time.time() > t_end:
-            #print('time',time.time(), t_end)
-            msg_id +=1
-            #print(msg_id)
             #print("initial_input", master_metrics_val_dict[sym])
             master_metrics_val_dict = collect_metrics(M, sym_list)
-                                              #initial_dt= master_metrics_val_dict[sym]['timestamp'],
-                                              #initial_price = master_metrics_val_dict[sym]['price'],
-                                              #initial_volume= master_metrics_val_dict[sym]['volume'])
-            print(master_metrics_val_dict)
-            set_metrics_values(sym_list, 
-                               master_metrics_obj_dict, # with sym_list as keys
-                               master_metrics_val_dict)
-            # Record the metrics value in a master dict as the default value 
-            # of the next loop
-            #break
+                                              
+            #print(master_metrics_val_dict)
+            # Post the metrics on Prometheus
+            #set_metrics_values(sym_list, 
+            #                   master_metrics_obj_dict, # with sym_list as keys
+            #                   master_metrics_val_dict)
         #time.sleep(update_rate)
-        #i +=1
     return
 
 @app.route('/metrics')
@@ -313,17 +286,22 @@ def metrics():
 
 @app.route('/')
 def hello():
-    delay = random.uniform(1, 5)  # Random delay between 1 and 5 seconds
-    time.sleep(delay)
+    #delay = random.uniform(1, 5)  # Random delay between 1 and 5 seconds
+    #time.sleep(delay)
 
     return 'Hello world!'
 
 
 if __name__ == '__main__':
+    
+    # Target: Input a list of symbols, Output plot in Grafana
+    # Process Get the live-data from WebAPI, get the Strategy Payload from internal
+    # server, post it through prometheus, plot them in Grafana
     port = os.environ.get("PORT") #int(os.getenv('PORT', '8000'))
     print(f'Starting HTTP server on port {port}')
     
-    metrics_thread = threading.Thread(target=main_loop, args = (symbol_list,), 
+    metrics_thread = threading.Thread(target=main_loop, 
+                                      args = (port, symbol_list,), 
                                       daemon=True)
     metrics_thread.start()
 
