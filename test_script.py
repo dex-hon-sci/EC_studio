@@ -11,6 +11,9 @@ import sys
 import time
 import logging
 
+from datetime import datetime, timezone
+
+
 from dotenv import load_dotenv
 import numpy as np
 sys.path.insert(0, '/home/dexter/Euler_Capital_codes/EC_studio/EC_API')
@@ -177,9 +180,10 @@ def strategypayload():
                     "sl_status": True}
     return strategy_data
 
-DEFAULT_KWARGS = {'initial_dt': np.nan,
-                  'initial_price':np.nan,
-                  'initial_volume':np.nan}
+DEFAULT_KWARGS = {'default_val_dict': {f'{sym}': {'timestamp': np.nan,
+                                      'price': np.nan,
+                                      'volume': np.nan} 
+                                       for sym in code_list}}
 
 def collect_metrics(monitor: Monitor, 
                     symbol_name_list: list[str], 
@@ -193,21 +197,21 @@ def collect_metrics(monitor: Monitor,
     for symbol_name in symbol_name_list:
         # collect inforamtion 
         contract_id = CONTRACT_IDS[symbol_name]
-        print(f"======={symbol_name}, {contract_id}=======")
+        #print(f"======={symbol_name}, {contract_id}=======")
+        d_timestamp = kwargs['default_val_dict'][symbol_name]['timestamp']
+        d_price = kwargs['default_val_dict'][symbol_name]['price']
+        d_volume = kwargs['default_val_dict'][symbol_name]['volume']
         # Get the live-data
         timestamp, price, volume = M.request_real_time(contract_id,
-                                                       default_timestamp=
-                                                       kwargs['initial_dt'],
-                                                       default_price=
-                                                       kwargs['initial_price'],
-                                                       default_volume=
-                                                       kwargs['initial_volume'])
-                                                          #kwargs['initial_dt'],
-                                                          #kwargs['initial_price'],
-                                                          #kwargs['initial_volume'])
+                                                       default_timestamp=d_timestamp,
+                                                       default_price=d_price,
+                                                       default_volume=d_volume)
+
         M.reset_tracker(contract_id) # Reset the tracker
+        
+        # save it for the next
         #timestamp, price, volume = M.track_real_time_inst(contract_id, msg_id)
-        print(symbol_name, contract_id, timestamp, price, volume)
+        #print(symbol_name, contract_id, timestamp, price, volume)
 
         #logger.info(str(server_msg))
         #print('msg_id',msg_id)
@@ -287,34 +291,45 @@ def main_loop(port, sym_list:list[str], update_rate: float |int=1):
     master_metrics_obj_dict = {f'{CODE2SYM[sym]}': setup_metrics_obj(CODE2SYM[sym])
                                for sym in sym_list}
     
-    master_metrics_val_dict = {f'{sym}': {'timestamp': np.nan,
-                                          'price': np.nan,
-                                          'volume': np.nan} 
-                               for sym in sym_list}
+    # Initial buffer values 
+    master_metrics_val_buffer_dict = {f'{sym}': {'timestamp': np.nan,
+                                                 'price': np.nan,
+                                                 'volume': np.nan} 
+                                                  for sym in sym_list}
 
-    print(master_metrics_obj_dict, master_metrics_val_dict)
+    #print(master_metrics_obj_dict, master_metrics_val_dict)
     msg_id = 200
-    master_metrics_val_dict = {f'{sym}': {'timestamp': 404,
-                                          'price': 404,
-                                          'volume':404} for sym in sym_list}
 # =============================================================================
 #     master_metrics_val_dict = collect_metrics(M, sym_list, msg_id)
 #     print("master_metrics_val_dict", master_metrics_val_dict)
 #     # Main Loop of the app
 # =============================================================================
+   # os.system(f"curl -i -XPOST localhost:9010/-/reload")
+
     t_end = time.time() + 5
     while True:
         # ...
+                
+        UTC_now_dt = datetime.now(timezone.utc)
+        # POSIX timestamp in milliseconds
+        UTC_now_timestamp = datetime.now(timezone.utc).timestamp() * 1000 
+        
+        # Start the loop if it is 03:30 UTC
+        # Delete the TSDB data when the time is between 00:00 -> 03:00 UTC
+        # (This can only be done when the port is active)
+        # if UTC_now_dt.time() < xxx :
+        # os.system(f"curl -X POST -g 'http://localhost:{port}/api/v1/admin/tsdb/delete_series?match[]={instance="sbcode.net:9010"}'")
+
         if time.time() > t_end:
             #print('time',time.time(), t_end)
             msg_id +=1
-            #print(msg_id)
+            print(M.msg_id)
             #print("initial_input", master_metrics_val_dict[sym])
-            master_metrics_val_dict = collect_metrics(M, sym_list)
-                                              #initial_dt= master_metrics_val_dict[sym]['timestamp'],
-                                              #initial_price = master_metrics_val_dict[sym]['price'],
-                                              #initial_volume= master_metrics_val_dict[sym]['volume'])
-            #print(master_metrics_val_dict)
+            master_metrics_val_dict = collect_metrics(M, sym_list,
+                                                      default_val_dict=
+                                                      master_metrics_val_buffer_dict)
+            master_metrics_val_buffer_dict = master_metrics_val_dict
+            print(master_metrics_val_dict)
             set_metrics_values(sym_list, 
                                master_metrics_obj_dict, # with sym_list as keys
                                master_metrics_val_dict)
