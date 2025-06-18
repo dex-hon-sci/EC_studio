@@ -239,7 +239,9 @@ def collect_metrics(monitor: Monitor,
         exit_status = strategy_data['exit_status']
         sl_status = strategy_data['sl_status']
         
-        # Derived quantity
+        # Derived quantities
+        # Add a function here to track all the derived quantites
+        # class of stuff with input of the buffer list
         PNL = (price-TE_price)*lot_size
     
         # Load them for output
@@ -282,7 +284,7 @@ def set_metrics_values(symbol_name_list: str,
     return
 
 
-def main_loop(port, sym_list:list[str], update_rate: float |int=1):
+def main_loop(port: int, sym_list:list[str], update_rate: float |int=2):
     # update_rate is the waiting time each loop in seconds 
     # Setup and initilisation
     
@@ -328,16 +330,17 @@ def main_loop(port, sym_list:list[str], update_rate: float |int=1):
             master_metrics_val_dict = collect_metrics(M, sym_list,
                                                       default_val_dict=
                                                       master_metrics_val_buffer_dict)
-            master_metrics_val_buffer_dict = master_metrics_val_dict
-            print(master_metrics_val_dict)
+            #print(master_metrics_val_dict)
             set_metrics_values(sym_list, 
                                master_metrics_obj_dict, # with sym_list as keys
                                master_metrics_val_dict)
 
             # Record the metrics value in a master dict as the default value 
             # of the next loop
+            master_metrics_val_buffer_dict = master_metrics_val_dict
+
             #break
-        #time.sleep(update_rate)
+            time.sleep(update_rate)
         #i +=1
     return
 
